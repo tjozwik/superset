@@ -165,7 +165,6 @@ export default defineConfig({
 		ssr: {
 			external: ["@tanstack/react-query", "@tanstack/query-core"],
 		},
-		renderer: {
 		define: {
 			"process.env.NODE_ENV": defineEnv(process.env.NODE_ENV),
 			"process.env.SKIP_ENV_VALIDATION": defineEnv(
