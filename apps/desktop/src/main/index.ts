@@ -317,13 +317,27 @@ if (!gotTheLock) {
 							]
 						: [];
 			/** Recursively search for a font file in a directory tree */
-			function findFontFile(dir: string, filename: string): string | null {
+			async function findFontFile(
+				dir: string,
+				filename: string,
+			): Promise<string | null> {
 				const direct = path.join(dir, filename);
-				if (fs.existsSync(direct)) return direct;
 				try {
-					for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+					await fs.promises.access(direct);
+					return direct;
+				} catch {
+					// Not found at this level, search subdirectories
+				}
+				try {
+					const entries = await fs.promises.readdir(dir, {
+						withFileTypes: true,
+					});
+					for (const entry of entries) {
 						if (entry.isDirectory()) {
-							const found = findFontFile(path.join(dir, entry.name), filename);
+							const found = await findFontFile(
+								path.join(dir, entry.name),
+								filename,
+							);
 							if (found) return found;
 						}
 					}
@@ -340,7 +354,7 @@ if (!gotTheLock) {
 					return new Response("Not found", { status: 404 });
 				}
 				for (const dir of SYSTEM_FONT_DIRS) {
-					const fontPath = findFontFile(dir, filename);
+					const fontPath = await findFontFile(dir, filename);
 					if (fontPath) {
 						try {
 							return await net.fetch(pathToFileURL(fontPath).toString());

@@ -120,7 +120,7 @@ export function PermissionsSettings({
 					<PermissionRow
 						label="Automation"
 						description="Run terminal commands and interact with other applications"
-						granted={undefined}
+						granted={status?.appleEvents}
 						onRequest={() => requestAppleEvents.mutate()}
 					/>
 				)}
@@ -132,7 +132,7 @@ export function PermissionsSettings({
 					<PermissionRow
 						label="Local Network"
 						description="Discover and connect to development servers on your network"
-						granted={undefined}
+						granted={status?.localNetwork}
 						onRequest={() => requestLocalNetwork.mutate()}
 					/>
 				)}

@@ -44,6 +44,12 @@ export const createPermissionsRouter = () => {
 				fullDiskAccess: checkFullDiskAccess(),
 				accessibility: checkAccessibility(),
 				microphone: checkMicrophone(),
+				appleEvents: (IS_MAC ? undefined : "not-applicable") as
+					| PermissionStatus
+					| undefined,
+				localNetwork: (IS_MAC ? undefined : "not-applicable") as
+					| PermissionStatus
+					| undefined,
 			};
 		}),
 
