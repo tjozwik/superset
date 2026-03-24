@@ -341,8 +341,8 @@ if (!gotTheLock) {
 							if (found) return found;
 						}
 					}
-				} catch {
-					// Permission denied or directory not readable
+				} catch (err) {
+					console.warn(`[fonts] Failed to read directory ${dir}:`, err);
 				}
 				return null;
 			}

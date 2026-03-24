@@ -2,14 +2,13 @@ import fs from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { shell, systemPreferences } from "electron";
+import { PLATFORM } from "shared/constants";
 import { publicProcedure, router } from "..";
-
-const IS_MAC = process.platform === "darwin";
 
 type PermissionStatus = boolean | "not-applicable";
 
 function checkFullDiskAccess(): PermissionStatus {
-	if (!IS_MAC) return "not-applicable";
+	if (!PLATFORM.IS_MAC) return "not-applicable";
 	try {
 		// Safari bookmarks are TCC-protected — readable only with Full Disk Access
 		const tccProtectedPath = path.join(
@@ -24,12 +23,12 @@ function checkFullDiskAccess(): PermissionStatus {
 }
 
 function checkAccessibility(): PermissionStatus {
-	if (!IS_MAC) return "not-applicable";
+	if (!PLATFORM.IS_MAC) return "not-applicable";
 	return systemPreferences.isTrustedAccessibilityClient(false);
 }
 
 function checkMicrophone(): PermissionStatus {
-	if (!IS_MAC) return "not-applicable";
+	if (!PLATFORM.IS_MAC) return "not-applicable";
 	try {
 		return systemPreferences.getMediaAccessStatus("microphone") === "granted";
 	} catch {
@@ -44,31 +43,31 @@ export const createPermissionsRouter = () => {
 				fullDiskAccess: checkFullDiskAccess(),
 				accessibility: checkAccessibility(),
 				microphone: checkMicrophone(),
-				appleEvents: (IS_MAC ? undefined : "not-applicable") as
+				appleEvents: (PLATFORM.IS_MAC ? undefined : "not-applicable") as
 					| PermissionStatus
 					| undefined,
-				localNetwork: (IS_MAC ? undefined : "not-applicable") as
+				localNetwork: (PLATFORM.IS_MAC ? undefined : "not-applicable") as
 					| PermissionStatus
 					| undefined,
 			};
 		}),
 
 		requestFullDiskAccess: publicProcedure.mutation(async () => {
-			if (!IS_MAC) return;
+			if (!PLATFORM.IS_MAC) return;
 			await shell.openExternal(
 				"x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
 			);
 		}),
 
 		requestAccessibility: publicProcedure.mutation(async () => {
-			if (!IS_MAC) return;
+			if (!PLATFORM.IS_MAC) return;
 			await shell.openExternal(
 				"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
 			);
 		}),
 
 		requestMicrophone: publicProcedure.mutation(async () => {
-			if (!IS_MAC) return;
+			if (!PLATFORM.IS_MAC) return { granted: false };
 			try {
 				const granted = await systemPreferences.askForMediaAccess("microphone");
 				if (granted) {
@@ -85,7 +84,7 @@ export const createPermissionsRouter = () => {
 		}),
 
 		requestAppleEvents: publicProcedure.mutation(async () => {
-			if (!IS_MAC) return;
+			if (!PLATFORM.IS_MAC) return;
 			await shell.openExternal(
 				"x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
 			);
@@ -93,7 +92,7 @@ export const createPermissionsRouter = () => {
 
 		// No deep link exists for Local Network — open the general Privacy & Security pane
 		requestLocalNetwork: publicProcedure.mutation(async () => {
-			if (!IS_MAC) return;
+			if (!PLATFORM.IS_MAC) return;
 			await shell.openExternal(
 				"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension",
 			);
