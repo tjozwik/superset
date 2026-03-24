@@ -6,8 +6,10 @@ import { publicProcedure, router } from "..";
 
 const IS_MAC = process.platform === "darwin";
 
-function checkFullDiskAccess(): boolean {
-	if (!IS_MAC) return true;
+type PermissionStatus = boolean | "not-applicable";
+
+function checkFullDiskAccess(): PermissionStatus {
+	if (!IS_MAC) return "not-applicable";
 	try {
 		// Safari bookmarks are TCC-protected — readable only with Full Disk Access
 		const tccProtectedPath = path.join(
@@ -21,13 +23,13 @@ function checkFullDiskAccess(): boolean {
 	}
 }
 
-function checkAccessibility(): boolean {
-	if (!IS_MAC) return true;
+function checkAccessibility(): PermissionStatus {
+	if (!IS_MAC) return "not-applicable";
 	return systemPreferences.isTrustedAccessibilityClient(false);
 }
 
-function checkMicrophone(): boolean {
-	if (!IS_MAC) return true;
+function checkMicrophone(): PermissionStatus {
+	if (!IS_MAC) return "not-applicable";
 	try {
 		return systemPreferences.getMediaAccessStatus("microphone") === "granted";
 	} catch {
@@ -60,10 +62,9 @@ export const createPermissionsRouter = () => {
 		}),
 
 		requestMicrophone: publicProcedure.mutation(async () => {
-			if (!IS_MAC) return { granted: true };
+			if (!IS_MAC) return;
 			try {
-				const granted =
-					await systemPreferences.askForMediaAccess("microphone");
+				const granted = await systemPreferences.askForMediaAccess("microphone");
 				if (granted) {
 					return { granted: true };
 				}

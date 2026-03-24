@@ -1,10 +1,4 @@
-import { createRequire } from "node:module";
-try {
-	const require = createRequire(import.meta.url);
-	require("./patch-node-stream");
-} catch (err) {
-	console.error('[patch-node-stream] failed to require patch at runtime', err && (err as Error).message);
-}
+import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { settings } from "@superset/local-db";
@@ -316,8 +310,29 @@ if (!gotTheLock) {
 							"/Library/Fonts",
 						]
 					: process.platform === "linux"
-						? ["/usr/share/fonts", "/usr/local/share/fonts", `${path.join(app.getPath("home"), ".local/share/fonts")}`]
+						? [
+								"/usr/share/fonts",
+								"/usr/local/share/fonts",
+								`${path.join(app.getPath("home"), ".local/share/fonts")}`,
+							]
 						: [];
+			/** Recursively search for a font file in a directory tree */
+			function findFontFile(dir: string, filename: string): string | null {
+				const direct = path.join(dir, filename);
+				if (fs.existsSync(direct)) return direct;
+				try {
+					for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+						if (entry.isDirectory()) {
+							const found = findFontFile(path.join(dir, entry.name), filename);
+							if (found) return found;
+						}
+					}
+				} catch {
+					// Permission denied or directory not readable
+				}
+				return null;
+			}
+
 			const fontProtocolHandler = async (request: Request) => {
 				const url = new URL(request.url);
 				const filename = path.basename(url.pathname);
@@ -325,11 +340,13 @@ if (!gotTheLock) {
 					return new Response("Not found", { status: 404 });
 				}
 				for (const dir of SYSTEM_FONT_DIRS) {
-					const fontPath = path.join(dir, filename);
-					try {
-						return await net.fetch(pathToFileURL(fontPath).toString());
-					} catch {
-						// Font not in this directory, try next
+					const fontPath = findFontFile(dir, filename);
+					if (fontPath) {
+						try {
+							return await net.fetch(pathToFileURL(fontPath).toString());
+						} catch {
+							// Font file exists but couldn't be read, try next
+						}
 					}
 				}
 				return new Response("Not found", { status: 404 });
