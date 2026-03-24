@@ -1,7 +1,7 @@
 import { toast } from "@superset/ui/sonner";
 import { cn } from "@superset/ui/utils";
 import { AnimatePresence, motion } from "framer-motion";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useDrag, useDrop } from "react-dnd";
 import { electronTrpc } from "renderer/lib/electron-trpc";
 import { useReorderProjects } from "renderer/react-query/projects";
@@ -217,32 +217,38 @@ export function ProjectSection({
 		},
 	});
 
+	const projectHeaderRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		drag(drop(projectHeaderRef));
+	}, [drag, drop]);
+
 	if (isSidebarCollapsed) {
 		return (
 			<div
-				ref={(node) => {
-					drag(drop(node));
-				}}
+				ref={projectHeaderRef}
 				className={cn(
 					"flex flex-col items-center py-2 border-b border-border last:border-b-0",
 					isDragging && "opacity-30",
+					isDragging && "cursor-grabbing",
 				)}
-				style={{ cursor: isDragging ? "grabbing" : "grab" }}
 			>
-				<ProjectHeader
-					projectId={projectId}
-					projectName={projectName}
-					projectColor={projectColor}
-					githubOwner={githubOwner}
-					mainRepoPath={mainRepoPath}
-					hideImage={hideImage}
-					iconUrl={iconUrl}
-					isCollapsed={isCollapsed}
-					isSidebarCollapsed={isSidebarCollapsed}
-					onToggleCollapse={() => toggleProjectCollapsed(projectId)}
-					workspaceCount={totalWorkspaceCount}
-					onNewWorkspace={handleNewWorkspace}
-				/>
+				<div className="w-full">
+					<ProjectHeader
+						projectId={projectId}
+						projectName={projectName}
+						projectColor={projectColor}
+						githubOwner={githubOwner}
+						mainRepoPath={mainRepoPath}
+						hideImage={hideImage}
+						iconUrl={iconUrl}
+						isCollapsed={isCollapsed}
+						isSidebarCollapsed={isSidebarCollapsed}
+						onToggleCollapse={() => toggleProjectCollapsed(projectId)}
+						workspaceCount={totalWorkspaceCount}
+						onNewWorkspace={handleNewWorkspace}
+					/>
+				</div>
 				<AnimatePresence initial={false}>
 					{!isCollapsed && (
 						<motion.div
@@ -322,29 +328,29 @@ export function ProjectSection({
 
 	return (
 		<div
-			ref={(node) => {
-				drag(drop(node));
-			}}
+			ref={projectHeaderRef}
 			className={cn(
 				"border-b border-border last:border-b-0",
 				isDragging && "opacity-30",
+				isDragging && "cursor-grabbing",
 			)}
-			style={{ cursor: isDragging ? "grabbing" : "grab" }}
 		>
-			<ProjectHeader
-				projectId={projectId}
-				projectName={projectName}
-				projectColor={projectColor}
-				githubOwner={githubOwner}
-				mainRepoPath={mainRepoPath}
-				hideImage={hideImage}
-				iconUrl={iconUrl}
-				isCollapsed={isCollapsed}
-				isSidebarCollapsed={isSidebarCollapsed}
-				onToggleCollapse={() => toggleProjectCollapsed(projectId)}
-				workspaceCount={totalWorkspaceCount}
-				onNewWorkspace={handleNewWorkspace}
-			/>
+			<div className="w-full">
+				<ProjectHeader
+					projectId={projectId}
+					projectName={projectName}
+					projectColor={projectColor}
+					githubOwner={githubOwner}
+					mainRepoPath={mainRepoPath}
+					hideImage={hideImage}
+					iconUrl={iconUrl}
+					isCollapsed={isCollapsed}
+					isSidebarCollapsed={isSidebarCollapsed}
+					onToggleCollapse={() => toggleProjectCollapsed(projectId)}
+					workspaceCount={totalWorkspaceCount}
+					onNewWorkspace={handleNewWorkspace}
+				/>
+			</div>
 
 			<AnimatePresence initial={false}>
 				{!isCollapsed && (

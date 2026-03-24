@@ -12,8 +12,13 @@ import { type ChildProcess, spawn } from "node:child_process";
 import type { Socket } from "node:net";
 import * as path from "node:path";
 import { DEFAULT_TERMINAL_SCROLLBACK } from "shared/constants";
-import { getShellArgs } from "../lib/agent-setup/shell-wrappers";
+import {
+	getCommandShellArgs,
+	getShellArgs,
+} from "../lib/agent-setup/shell-wrappers";
+import { raceWithAbort, throwIfAborted } from "../lib/terminal/abort";
 import { buildSafeEnv } from "../lib/terminal/env";
+import { isTerminalAttachCanceledError } from "../lib/terminal/errors";
 import { HeadlessEmulator } from "../lib/terminal-host/headless-emulator";
 import type {
 	CreateOrAttachRequest,
@@ -91,6 +96,7 @@ export interface SessionOptions {
 	workspaceName?: string;
 	workspacePath?: string;
 	rootPath?: string;
+	command?: string;
 	scrollbackLines?: number;
 	spawnProcess?: SpawnProcess;
 }
@@ -98,6 +104,7 @@ export interface SessionOptions {
 export interface AttachedClient {
 	socket: Socket;
 	attachedAt: number;
+	attachToken: symbol;
 }
 
 // =============================================================================
@@ -110,6 +117,7 @@ export class Session {
 	readonly paneId: string;
 	readonly tabId: string;
 	readonly shell: string;
+	readonly command?: string;
 	readonly createdAt: Date;
 	private readonly spawnProcess: SpawnProcess;
 
@@ -173,6 +181,7 @@ export class Session {
 		this.paneId = options.paneId;
 		this.tabId = options.tabId;
 		this.shell = options.shell || this.getDefaultShell();
+		this.command = options.command;
 		this.createdAt = new Date();
 		this.lastAttachedAt = new Date();
 		this.spawnProcess = options.spawnProcess ?? spawn;
@@ -237,7 +246,9 @@ export class Session {
 		const processEnv = buildSafeEnv(envSource);
 		processEnv.TERM = "xterm-256color";
 
-		const shellArgs = getShellArgs(this.shell);
+		const shellArgs = this.command
+			? getCommandShellArgs(this.shell, this.command)
+			: getShellArgs(this.shell);
 		const subprocessPath = path.join(__dirname, "pty-subprocess.js");
 
 		// Spawn subprocess with filtered env to prevent leaking NODE_ENV etc.
@@ -295,6 +306,9 @@ export class Session {
 			rows,
 			env: processEnv,
 		};
+
+		// Command is now passed via shell args (e.g., bash -lc "command"),
+		// so the PTY process exits when the command finishes.
 	}
 
 	private pendingSpawn: {
@@ -756,37 +770,65 @@ export class Session {
 	/**
 	 * Attach a client to this session
 	 */
-	async attach(socket: Socket): Promise<TerminalSnapshot> {
+	async attach(
+		socket: Socket,
+		signal?: AbortSignal,
+	): Promise<TerminalSnapshot> {
 		if (this.disposed) {
 			throw new Error("Session disposed");
 		}
+		throwIfAborted(signal);
 
-		this.attachedClients.set(socket, {
+		const attachedClient: AttachedClient = {
 			socket,
 			attachedAt: Date.now(),
-		});
+			attachToken: Symbol("attach"),
+		};
+		this.attachedClients.set(socket, attachedClient);
 		this.lastAttachedAt = new Date();
 
 		// Use snapshot boundary flush for consistent state with continuous output.
 		// This ensures we capture all data received BEFORE attach was called,
 		// even if new data continues to arrive during the flush.
-		const reachedBoundary = await this.flushToSnapshotBoundary(
-			ATTACH_FLUSH_TIMEOUT_MS,
-		);
-
-		if (!reachedBoundary) {
-			console.warn(
-				`[Session ${this.sessionId}] Attach flush timeout after ${ATTACH_FLUSH_TIMEOUT_MS}ms`,
+		try {
+			const reachedBoundary = await raceWithAbort(
+				this.flushToSnapshotBoundary(ATTACH_FLUSH_TIMEOUT_MS),
+				signal,
 			);
-		}
 
-		return this.emulator.getSnapshotAsync();
+			if (!reachedBoundary) {
+				console.warn(
+					`[Session ${this.sessionId}] Attach flush timeout after ${ATTACH_FLUSH_TIMEOUT_MS}ms`,
+				);
+			}
+
+			await raceWithAbort(this.emulator.flush(), signal);
+			throwIfAborted(signal);
+			return this.emulator.getSnapshot();
+		} catch (error) {
+			if (isTerminalAttachCanceledError(error)) {
+				this.detachAttachedClient(socket, attachedClient);
+				throw error;
+			}
+			throw error;
+		}
 	}
 
 	/**
 	 * Detach a client from this session
 	 */
 	detach(socket: Socket): void {
+		this.detachAttachedClient(socket);
+	}
+
+	private detachAttachedClient(
+		socket: Socket,
+		attachedClient?: AttachedClient,
+	): void {
+		const currentClient = this.attachedClients.get(socket);
+		if (attachedClient && currentClient !== attachedClient) {
+			return;
+		}
 		this.attachedClients.delete(socket);
 		this.clientSocketsWaitingForDrain.delete(socket);
 		this.maybeResumeSubprocessStdout();
@@ -1098,5 +1140,6 @@ export function createSession(request: CreateOrAttachRequest): Session {
 		workspaceName: request.workspaceName,
 		workspacePath: request.workspacePath,
 		rootPath: request.rootPath,
+		command: request.command,
 	});
 }

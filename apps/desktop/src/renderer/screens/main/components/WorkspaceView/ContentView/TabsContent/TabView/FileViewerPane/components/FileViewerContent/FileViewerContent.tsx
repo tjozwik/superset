@@ -17,6 +17,7 @@ import type { DiffViewMode } from "shared/changes-types";
 import { detectLanguage } from "shared/detect-language";
 import { isImageFile } from "shared/file-types";
 import type { FileViewerMode } from "shared/tabs-types";
+import { useScrollToFirstDiffChange } from "../../hooks/useScrollToFirstDiffChange";
 import { DiffScrollbarDecorations } from "../DiffScrollbarDecorations";
 import { DiffViewerContextMenu } from "../DiffViewerContextMenu";
 import { FileEditorContextMenu } from "../FileEditorContextMenu";
@@ -110,7 +111,6 @@ interface FileViewerContentProps {
 	diffData: DiffData | undefined;
 	editorRef: MutableRefObject<CodeEditorAdapter | null>;
 	markdownEditorRef: MutableRefObject<MarkdownEditorAdapter | null>;
-	draftContentRef: MutableRefObject<string | null>;
 	renderedContent: string;
 	initialLine?: number;
 	initialColumn?: number;
@@ -146,7 +146,6 @@ export function FileViewerContent({
 	diffData,
 	editorRef,
 	markdownEditorRef,
-	draftContentRef,
 	renderedContent,
 	initialLine,
 	initialColumn,
@@ -171,6 +170,14 @@ export function FileViewerContent({
 	markdownSearch,
 }: FileViewerContentProps) {
 	const isImage = isImageFile(filePath);
+
+	useScrollToFirstDiffChange({
+		containerRef: diffContainerRef,
+		filePath,
+		diffData,
+		enabled: viewMode === "diff" && !isLoadingDiff && !!diffData,
+	});
+
 	const hasAppliedInitialLocationRef = useRef(false);
 	const lastDiffLocationRef = useRef<
 		| (DiffDomLocation & {
@@ -479,7 +486,7 @@ export function FileViewerContent({
 				<CodeEditor
 					key={filePath}
 					language={detectLanguage(filePath)}
-					value={draftContentRef.current ?? rawFileData.content}
+					value={renderedContent}
 					onChange={onContentChange}
 					onSave={onSaveFile}
 					editorRef={editorRef}
