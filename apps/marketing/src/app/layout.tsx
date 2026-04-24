@@ -1,7 +1,11 @@
-import { COMPANY } from "@superset/shared/constants";
+import {
+	COMPANY,
+	STRIP_KATALON_ATTRS_SCRIPT,
+} from "@superset/shared/constants";
 import { GeistPixelGrid, GeistPixelSquare } from "geist/font/pixel";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter, Micro_5, Pixelify_Sans } from "next/font/google";
+import Script from "next/script";
 
 import { CookieConsent } from "@/components/CookieConsent";
 import {
@@ -126,6 +130,9 @@ export default function RootLayout({
 			suppressHydrationWarning
 		>
 			<head>
+				<Script id="strip-katalon-attrs" strategy="beforeInteractive">
+					{STRIP_KATALON_ATTRS_SCRIPT}
+				</Script>
 				<OrganizationJsonLd />
 				<SoftwareApplicationJsonLd />
 				<WebsiteJsonLd />
