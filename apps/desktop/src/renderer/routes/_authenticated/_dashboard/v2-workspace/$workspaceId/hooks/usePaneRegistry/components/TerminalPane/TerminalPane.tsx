@@ -291,7 +291,7 @@ export function TerminalPane({
 		if (files.length > 0) {
 			const paths = files
 				.map((file) => window.webUtils.getPathForFile(file))
-				.filter(Boolean);
+				.filter((p): p is string => !!p);
 			return paths.length > 0 ? shellEscapePaths(paths) : null;
 		}
 		const plainText = dataTransfer.getData("text/plain");
