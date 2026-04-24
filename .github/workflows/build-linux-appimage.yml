@@ -1,0 +1,153 @@
+name: Build Linux AppImage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+
+jobs:
+  build-appimage:
+    name: Build & validate AppImage (Ubuntu x64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Bun
+        id: setup-bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ steps.setup-bun.outputs.bun-revision }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-${{ steps.setup-bun.outputs.bun-revision }}-
+
+      # FUSE is needed for AppImage self-extract during the validation step.
+      # ubuntu-24.04 ships libfuse2t64; older images use libfuse2.
+      - name: Install libfuse
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfuse2t64 \
+            || sudo apt-get install -y --no-install-recommends libfuse2
+
+      - name: Install dependencies
+        run: bun install --frozen --ignore-scripts
+
+      - name: Install desktop native dependencies
+        working-directory: apps/desktop
+        run: bun run install:deps
+
+      - name: Clean dev folder
+        working-directory: apps/desktop
+        run: bun run clean:dev
+
+      - name: Generate file icons
+        working-directory: apps/desktop
+        run: bun run generate:icons
+
+      - name: Typecheck desktop
+        working-directory: apps/desktop
+        run: bun run typecheck
+
+      - name: Compile with electron-vite
+        working-directory: apps/desktop
+        env:
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+          NEXT_PUBLIC_WEB_URL: ${{ secrets.NEXT_PUBLIC_WEB_URL }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_DOCS_URL: ${{ secrets.NEXT_PUBLIC_DOCS_URL }}
+          NEXT_PUBLIC_STREAMS_URL: ${{ secrets.NEXT_PUBLIC_STREAMS_URL }}
+          NEXT_PUBLIC_ELECTRIC_URL: ${{ secrets.NEXT_PUBLIC_ELECTRIC_URL }}
+          SENTRY_DSN_DESKTOP: ${{ secrets.SENTRY_DSN_DESKTOP }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          RELAY_URL: ${{ secrets.RELAY_URL }}
+          SUPERSET_WORKSPACE_NAME: superset
+        run: bun run compile:app
+
+      # `package` triggers the `prepackage` script which runs
+      # `copy:native-modules` + `validate:native-runtime` automatically.
+      - name: Package AppImage with electron-builder
+        working-directory: apps/desktop
+        run: bun run package -- --publish never --linux AppImage
+
+      - name: Validate AppImage
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          ls -la release
+
+          APPIMAGE=$(ls -1 release/*.AppImage 2>/dev/null | head -1 || true)
+          if [ -z "$APPIMAGE" ]; then
+            echo "::error::No AppImage produced in apps/desktop/release"
+            exit 1
+          fi
+          echo "AppImage: $APPIMAGE"
+
+          SIZE=$(stat -c%s "$APPIMAGE")
+          echo "Size: $SIZE bytes"
+          if [ "$SIZE" -lt 50000000 ]; then
+            echo "::error::AppImage is suspiciously small (<50MB) — probably missing resources"
+            exit 1
+          fi
+
+          chmod +x "$APPIMAGE"
+
+          FILEINFO=$(file "$APPIMAGE")
+          echo "file: $FILEINFO"
+          echo "$FILEINFO" | grep -q "ELF 64-bit" || {
+            echo "::error::AppImage is not a 64-bit ELF executable"
+            exit 1
+          }
+
+          # Self-extract to verify squashfs payload integrity and presence of expected bundle contents.
+          WORKDIR=$(mktemp -d)
+          cp "$APPIMAGE" "$WORKDIR/app.AppImage"
+          pushd "$WORKDIR" >/dev/null
+          ./app.AppImage --appimage-extract >/dev/null
+          test -f squashfs-root/AppRun || {
+            echo "::error::squashfs-root/AppRun missing after extract — AppImage payload is corrupt"
+            exit 1
+          }
+          test -f squashfs-root/resources/app.asar || {
+            echo "::error::resources/app.asar missing from extracted AppImage"
+            exit 1
+          }
+          test -f squashfs-root/superset || test -f squashfs-root/electron || {
+            echo "::warning::expected electron launcher binary not found at squashfs-root/superset or /electron (non-fatal, filename may differ)"
+          }
+          popd >/dev/null
+          echo "AppImage extraction OK — payload is intact."
+
+          test -n "$(ls -1 release/*-linux.yml 2>/dev/null)" || {
+            echo "::error::Linux auto-update manifest (*-linux.yml) missing"
+            exit 1
+          }
+          echo "Linux auto-update manifest present."
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: superset-linux-appimage
+          path: apps/desktop/release/*.AppImage
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload Linux auto-update manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: superset-linux-update-manifest
+          path: apps/desktop/release/*-linux.yml
+          retention-days: 14
+          if-no-files-found: error
